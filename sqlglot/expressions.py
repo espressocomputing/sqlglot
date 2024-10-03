@@ -2152,6 +2152,35 @@ class Opclass(Expression):
     arg_types = {"this": True, "expression": True}
 
 
+class AlterWarehouse(Expression):
+    arg_types = {
+        "this": True, # Warehouse name
+        "suspend": False,
+        "resume": False,
+        "if_suspended": False,
+        "abort_all_queries": False,
+        "rename_to": False,
+        "set": False,
+    }
+
+
+class CopyInto(Expression):
+    arg_types = {
+        "this": True, # Table name into which data is loaded
+        "from": True, # Internal or external location where the files containing data to be loaded are staged
+        "files": False,
+        "file_format": False,
+        "compression": False,
+        "encryption": False,
+        "region": False,
+        "credentials": False,
+        "pattern": False,
+        "copy_options": False,
+        "validation_mode": False,
+        "copy": False,
+    }
+
+
 class Index(Expression):
     arg_types = {
         "this": False,

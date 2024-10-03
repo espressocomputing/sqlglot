@@ -210,6 +210,7 @@ class TokenType(AutoName):
     # keywords
     ALIAS = auto()
     ALTER = auto()
+    ALTER_WAREHOUSE = auto()
     ALWAYS = auto()
     ALL = auto()
     ANTI = auto()
@@ -232,6 +233,7 @@ class TokenType(AutoName):
     CONNECT_BY = auto()
     CONSTRAINT = auto()
     COPY = auto()
+    COPY_INTO = auto()
     CREATE = auto()
     CROSS = auto()
     CUBE = auto()

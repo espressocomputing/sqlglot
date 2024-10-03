@@ -3165,6 +3165,81 @@ class Generator(metaclass=_Generator):
         savepoint = f" TO {savepoint}" if savepoint else ""
         return f"ROLLBACK{savepoint}"
 
+    def alterwarehouse_sql(self, expression: exp.AlterWarehouse) -> str:
+        parts = [f"ALTER WAREHOUSE {self.sql(expression.this)}"]
+
+        if expression.args.get("suspend"):
+            parts.append("SUSPEND")
+        elif expression.args.get("resume"):
+            parts.append("RESUME")
+            if expression.args.get("if_suspended"):
+                parts.append("IF SUSPENDED")
+        
+        if expression.args.get("abort_all_queries"):
+            parts.append("ABORT ALL QUERIES")
+        
+        if rename_to := expression.args.get("rename_to"):
+            parts.append(f"RENAME TO {self.sql(rename_to)}")
+        
+        if set_properties := expression.args.get("set"):
+            set_parts = []
+            for prop in set_properties:
+                if isinstance(prop, exp.SchemaCommentProperty):
+                    set_parts.append(f"COMMENT = {self.sql(prop.args['this'])}")
+                elif isinstance(prop, exp.Property):
+                    set_parts.append(f"{self.sql(prop.args['this'])} = {self.sql(prop.args['value'])}")
+                else:
+                    self.unsupported(f"Unsupported SET syntax: {prop}")
+            
+            if set_parts:
+                parts.append("SET")
+                parts.extend(set_parts)
+
+        return " ".join(parts)
+    
+    def copyinto_sql(self, expression: exp.CopyInto) -> str:
+        parts = [f"COPY INTO {self.sql(expression.this)}"]
+
+        if columns := expression.args.get("columns"):
+            parts.append(f"({self.expressions(columns)})")
+
+        if from_clause := expression.args.get("from"):
+            parts.append(f"FROM {self.sql(from_clause)}")
+
+        if files := expression.args.get("files"):
+            files_sql = ", ".join(self.sql(file) for file in files)
+            parts.append(f"FILES = ({files_sql})")
+
+        if pattern := expression.args.get("pattern"):
+            parts.append(f"PATTERN = {self.sql(pattern)}")
+
+        if region := expression.args.get("region"):
+            parts.append(f"REGION = {self.sql(region)}")
+
+        if credentials := expression.args.get("credentials"):
+            if isinstance(credentials, bool) and credentials:
+                parts.append("CREDENTIALS = (AWS_KEY_ID = '☺☺☺' AWS_SECRET_KEY = '☺☺☺')")
+            else:
+                parts.append(f"CREDENTIALS = {self.sql(credentials)}")
+
+        if encryption := expression.args.get("encryption"):
+            if isinstance(encryption, bool) and encryption:
+                parts.append("ENCRYPTION = (TYPE = 'AWS_SSE_KMS' MASTER_KEY = '☺☺☺')")
+            else:
+                parts.append(f"ENCRYPTION = {self.sql(encryption)}")
+
+        if file_format := expression.args.get("file_format"):
+            file_format_sql = " ".join(f"{self.sql(prop.args['this'])} = {self.sql(prop.args['value'])}" for prop in file_format)
+            parts.append(f"FILE_FORMAT = ({file_format_sql})")
+
+        if copy_options := expression.args.get("copy_options"):
+            parts.append(f"COPY_OPTIONS = {self.sql(copy_options)}")
+
+        if validation_mode := expression.args.get("validation_mode"):
+            parts.append(f"VALIDATION_MODE = {self.sql(validation_mode)}")
+
+        return " ".join(parts)
+
     def altercolumn_sql(self, expression: exp.AlterColumn) -> str:
         this = self.sql(expression, "this")
 
