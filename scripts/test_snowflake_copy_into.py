@@ -19,7 +19,7 @@ FROM (
     print("[START] Original query:\n", copy_into_sql, "\n")
     parsed = parse_one(copy_into_sql, dialect=Snowflake)
     print("[MIDDLE] AST:\n", repr(parsed), "\n")
-    print("[END] Generated query:\n", parsed.sql(), "\n")
+    print("[END] Generated query:\n", parsed.sql(dialect=Snowflake), "\n")
     print("-" * 80, "\n")
 
 if __name__ == "__main__":

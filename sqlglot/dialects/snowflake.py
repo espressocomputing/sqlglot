@@ -479,10 +479,7 @@ class Snowflake(Dialect):
 
             while self._curr:
                 if self._match_text_seq("FILES"):
-                    self._match(TokenType.EQ)
-                    self._match(TokenType.L_PAREN)
-                    args["files"] = self._parse_csv(self._parse_string)
-                    self._match(TokenType.R_PAREN)
+                    args["files"] = self._parse_files()
 
                 elif self._match_text_seq("PATTERN"):
                     self._match(TokenType.EQ)
@@ -491,17 +488,6 @@ class Snowflake(Dialect):
                 elif self._match_text_seq("FILE_FORMAT"):
                     self._match(TokenType.EQ)
                     args["file_format"] = self._parse_file_format()
-
-                elif self._match_text_seq("COPY_OPTIONS"):
-                    self._match(TokenType.EQ)
-                    self._match(TokenType.L_PAREN)
-                    copy_options = []
-                    while not self._match(TokenType.R_PAREN):
-                        option = self._parse_id_var() or self._parse_string()
-                        if option:
-                            copy_options.append(option)
-                        self._match(TokenType.COMMA)
-                    args["copy_options"] = copy_options
 
                 elif self._match_text_seq("VALIDATION_MODE"):
                     self._match(TokenType.EQ)
@@ -540,6 +526,13 @@ class Snowflake(Dialect):
                     paren_count -= 1
                 self._advance()
 
+        def _parse_files(self):
+            self._match(TokenType.EQ)
+            self._match(TokenType.L_PAREN)
+            files = self._parse_csv(self._parse_string)
+            self._match(TokenType.R_PAREN)
+            return files
+
         def _parse_file_format(self):
             self._match(TokenType.L_PAREN)
             properties = []
@@ -560,7 +553,6 @@ class Snowflake(Dialect):
             self._match(TokenType.ALTER_WAREHOUSE)
             warehouse = self._parse_table_parts()
             args = {}
-            set_properties = []
 
             while self._curr:
                 if self._match_text_seq("SUSPEND"):
@@ -574,17 +566,9 @@ class Snowflake(Dialect):
                 elif self._match_text_seq("RENAME", "TO"):
                     args["rename_to"] = self._parse_table_parts()
                 elif self._match(TokenType.SET):
-                    set_properties = self._parse_all_properties()
+                    args["set"] = self._parse_all_properties()
                 else:
-                    # Try to parse as a property
-                    property = self._parse_property()
-                    if property:
-                        set_properties.append(property)
-                    else:
-                        break
-
-            if set_properties:
-                args["set"] = set_properties
+                    self._warn_unsupported()
 
             return self.expression(exp.AlterWarehouse, this=warehouse, **args)
 
