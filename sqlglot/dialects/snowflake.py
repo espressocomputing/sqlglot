@@ -390,6 +390,8 @@ class Snowflake(Dialect):
         STATEMENT_PARSERS = {
             **parser.Parser.STATEMENT_PARSERS,
             TokenType.SHOW: lambda self: self._parse_show(),
+            TokenType.COPY_INTO: lambda self: self._parse_copy_into(),
+            TokenType.ALTER_WAREHOUSE: lambda self: self._parse_alter_warehouse(),
         }
 
         PROPERTY_PARSERS = {
@@ -455,6 +457,146 @@ class Snowflake(Dialect):
                 expressions=[e.this if isinstance(e, exp.Cast) else e for e in expressions],
             ),
         }
+
+        def _parse_copy_into(self) -> exp.CopyInto:
+            self._match(TokenType.COPY_INTO)
+            table = self._parse_table_parts()
+            args = {}
+
+            # Parse columns if present
+            if self._match(TokenType.L_PAREN):
+                args["columns"] = self._parse_csv(self._parse_column)
+                self._match(TokenType.R_PAREN)
+
+            # Parse FROM clause
+            if self._match(TokenType.FROM):
+                if self._match(TokenType.L_PAREN, advance=False):
+                    # This is a SELECT statement
+                    args["from"] = self._parse_select(nested=True)
+                else:
+                    # This is a stage location or external location
+                    args["from"] = self._parse_string()
+
+            while self._curr:
+                if self._match_text_seq("FILES"):
+                    self._match(TokenType.EQ)
+                    self._match(TokenType.L_PAREN)
+                    args["files"] = self._parse_csv(self._parse_string)
+                    self._match(TokenType.R_PAREN)
+
+                elif self._match_text_seq("PATTERN"):
+                    self._match(TokenType.EQ)
+                    args["pattern"] = self._parse_string()
+
+                elif self._match_text_seq("FILE_FORMAT"):
+                    self._match(TokenType.EQ)
+                    args["file_format"] = self._parse_file_format()
+
+                elif self._match_text_seq("COPY_OPTIONS"):
+                    self._match(TokenType.EQ)
+                    self._match(TokenType.L_PAREN)
+                    copy_options = []
+                    while not self._match(TokenType.R_PAREN):
+                        option = self._parse_id_var() or self._parse_string()
+                        if option:
+                            copy_options.append(option)
+                        self._match(TokenType.COMMA)
+                    args["copy_options"] = copy_options
+
+                elif self._match_text_seq("VALIDATION_MODE"):
+                    self._match(TokenType.EQ)
+                    args["validation_mode"] = self._parse_string()
+
+                elif self._match_text_seq("REGION"):
+                    self._match(TokenType.EQ)
+                    args["region"] = self._parse_string()
+
+                elif self._match_text_seq("CREDENTIALS"):
+                    self._match(TokenType.EQ)
+                    args["credentials"] = True
+                    self._skip_parenthesized_expression()  # Skip the contents
+
+                elif self._match_text_seq("ENCRYPTION"):
+                    self._match(TokenType.EQ)
+                    args["encryption"] = True
+                    self._skip_parenthesized_expression()  # Skip the contents
+
+                else:
+                    break
+
+            return self.expression(exp.CopyInto, this=table, **args)
+        
+        def _skip_parenthesized_expression(self):
+            """
+            Skip over a parenthesized expression without parsing its contents.
+            Currently used for skipping credentials and encryption in COPY INTO statement.
+            """
+            self._match(TokenType.L_PAREN)
+            paren_count = 1
+            while paren_count > 0 and self._curr:
+                if self._curr.token_type == TokenType.L_PAREN:
+                    paren_count += 1
+                elif self._curr.token_type == TokenType.R_PAREN:
+                    paren_count -= 1
+                self._advance()
+
+        def _parse_file_format(self):
+            self._match(TokenType.L_PAREN)
+            properties = []
+            while not self._match(TokenType.R_PAREN):
+                key = self._parse_id_var()
+                self._match(TokenType.EQ)
+                if self._curr.token_type == TokenType.STRING:
+                    value = self._parse_string()
+                else:
+                    value = self._parse_id_var()
+                property = self.expression(exp.Property, this=key, value=value)
+                if property:
+                    properties.append(property)
+                self._match(TokenType.COMMA)
+            return properties
+
+        def _parse_alter_warehouse(self) -> exp.AlterWarehouse:
+            self._match(TokenType.ALTER_WAREHOUSE)
+            warehouse = self._parse_table_parts()
+            args = {}
+            set_properties = []
+
+            while self._curr:
+                if self._match_text_seq("SUSPEND"):
+                    args["suspend"] = True
+                elif self._match_text_seq("RESUME"):
+                    args["resume"] = True
+                    if self._match_text_seq("IF", "SUSPENDED"):
+                        args["if_suspended"] = True
+                elif self._match_text_seq("ABORT", "ALL", "QUERIES"):
+                    args["abort_all_queries"] = True
+                elif self._match_text_seq("RENAME", "TO"):
+                    args["rename_to"] = self._parse_table_parts()
+                elif self._match(TokenType.SET):
+                    set_properties = self._parse_all_properties()
+                else:
+                    # Try to parse as a property
+                    property = self._parse_property()
+                    if property:
+                        set_properties.append(property)
+                    else:
+                        break
+
+            if set_properties:
+                args["set"] = set_properties
+
+            return self.expression(exp.AlterWarehouse, this=warehouse, **args)
+
+        def _parse_all_properties(self):
+            properties = []
+            while self._curr:
+                property = self._parse_property()
+                if property:
+                    properties.append(property)
+                else:
+                    break
+            return properties
 
         def _negate_range(
             self, this: t.Optional[exp.Expression] = None
@@ -705,9 +847,11 @@ class Snowflake(Dialect):
 
         KEYWORDS = {
             **tokens.Tokenizer.KEYWORDS,
+            "ALTER WAREHOUSE": TokenType.ALTER_WAREHOUSE,
             "BYTEINT": TokenType.INT,
             "CHAR VARYING": TokenType.VARCHAR,
             "CHARACTER VARYING": TokenType.VARCHAR,
+            "COPY INTO": TokenType.COPY_INTO,
             "EXCLUDE": TokenType.EXCEPT,
             "ILIKE ANY": TokenType.ILIKE_ANY,
             "LIKE ANY": TokenType.LIKE_ANY,
